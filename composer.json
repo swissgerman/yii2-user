@@ -16,7 +16,7 @@
   ],
   "require": {
     "yiisoft/yii2": "*",
-    "samkoch/activitylog": "*"
+    "samkoch/yii2-activitylog": "*"
   },
   "autoload": {
     "psr-4": {
