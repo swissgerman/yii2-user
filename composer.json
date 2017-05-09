@@ -16,6 +16,7 @@
   ],
   "require": {
     "yiisoft/yii2": "*",
+    "samkoch/yii2-ldap": "*",
     "samkoch/yii2-activitylog": "*"
   },
   "autoload": {
