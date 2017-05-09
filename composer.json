@@ -20,7 +20,7 @@
   },
   "autoload": {
     "psr-4": {
-      "samkoch\\yii2ldap\\": "src/"
+      "samkoch\\yii2user\\": "src/"
     }
   }
 }
