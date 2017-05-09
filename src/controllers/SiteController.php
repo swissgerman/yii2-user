@@ -3,11 +3,9 @@
 namespace samkoch\yii2user\controllers;
 
 use Yii;
-use yii\helpers\Url;
-use yii\filters\AccessControl;
 use yii\web\Controller;
-use yii\filters\VerbFilter;
-use app\models\LoginForm;
+use yii\helpers\Url;
+use samkoch\yii2user\models\LoginForm;
 use samkoch\activitylog\ActivityLog;
 
 class SiteController extends Controller
