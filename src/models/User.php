@@ -239,6 +239,57 @@ class User extends ActiveRecord implements IdentityInterface
         $this->password_reset_token = null;
     }
 
+    /**
+     * Creates user from directory using sAMAccountName or email.
+     *
+     * @param $username
+     * @return \app\models\User
+     * @throws \yii\base\Exception
+     */
+    public static function createUserFromDirectory($username)
+    {
+        $user = self::findByUsername($username);
+
+        //if email address was provided
+        if (!$user && filter_var($username, FILTER_VALIDATE_EMAIL)) {
+            $user = self::findByEmail($username);
+        }
+
+        if (!$user) {
+
+            //get LDAP component
+            $ldap = yii::$app->ldap;
+
+            //if email address was provided
+            if (filter_var($username, FILTER_VALIDATE_EMAIL)) {
+                $ldapData = $ldap->getEntries('(&(objectClass=User)(mail=' . $username . '))',
+                    ['displayname', 'mail', 'objectguid', 'samaccountname', 'givenname', 'sn', 'extensionattribute6']);
+            } else {
+                $ldapData = $ldap->getEntries('(&(objectClass=User)(sAMAccountName=' . $username . '))',
+                    ['displayname', 'mail', 'objectguid', 'samaccountname', 'givenname', 'sn', 'extensionattribute6']);
+            }
+
+            if (count($ldapData) > 1 && !empty($ldap->getSingleValue($ldapData, 'givenname')) && !empty($ldap->getSingleValue($ldapData, 'sn'))) {
+                $model = new self;
+                $model->object_guid = $ldap->getGUID($ldap->getSingleValue($ldapData, 'objectguid'));
+                $model->username = $ldap->getSingleValue($ldapData, 'samaccountname');
+                $model->first_name = $ldap->getSingleValue($ldapData, 'givenname');
+                $model->last_name = $ldap->getSingleValue($ldapData, 'sn');
+                $model->email = $ldap->getSingleValue($ldapData, 'mail');
+                $model->job_title = $ldap->getSingleValue($ldapData, 'extensionattribute6');
+                $model->display_name = $ldap->getSingleValue($ldapData, 'displayname');
+                $model->status = self::STATUS_ACTIVE;
+
+                if (!$model->save()) {
+                    throw new Exception('Cannot save new user to database.');
+                }
+
+                return $model;
+            }
+        }
+
+        return false;
+    }
 
     protected function updateUserDataFromActiveDirectory()
     {
