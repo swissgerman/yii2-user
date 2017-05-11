@@ -305,15 +305,6 @@ class User extends ActiveRecord implements IdentityInterface
         $this->save(false);
     }
 
-
-    public static function getUserGroup()
-    {
-        $user = static::findIdentity(Yii::$app->user->id);
-        if ($user) {
-            return $user->user_group_id;
-        }
-    }
-
     public static function getAllUsersOfCurrentUsersUsergroup()
     {
         if (!Yii::$app->user->isGuest) {
