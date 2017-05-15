@@ -109,8 +109,7 @@ class UserImportController extends Controller
     {
         //delete not imported users, except admin and local users
         $usersToBeDeleted = User::find()
-            ->where(['!=', 'user_group_id', User::USERGROUP_ADMIN])
-            ->andWhere(['!=', 'local_user', 1])
+            ->where(['!=', 'local_user', 1])
             ->andWhere(['NOT IN', 'object_guid', $this->importedObjectGuids])
             ->andWhere(['!=', 'status', User::STATUS_DELETED])
             ->all();
