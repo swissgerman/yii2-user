@@ -27,8 +27,10 @@ class UserImportController extends Controller
             foreach (Yii::$app->params['userGroups'] as $role => $adGroup) {
                 $adUsers = $this->retrieveUsersFromDirectory($adGroup);
 
-                foreach ($adUsers as $adUser) {
-                    $this->importUser($adUser, $adGroup, $role === 'admin' ? true : false);
+                if($adUsers && is_array($adUsers)) {
+                    foreach ($adUsers as $adUser) {
+                        $this->importUser($adUser, $adGroup, $role === 'admin' ? true : false);
+                    }
                 }
             }
 
