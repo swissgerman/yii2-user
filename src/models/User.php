@@ -356,5 +356,9 @@ class User extends ActiveRecord implements IdentityInterface
     {
         return ArrayHelper::map(self::find()->orderBy('display_name')->all(), 'id', 'display_name');
     }
+    
+    public function isAdmin() {
+        return $this->user_group_id == self::USERGROUP_ADMIN;
+    }
 
 }
