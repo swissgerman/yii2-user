@@ -20,7 +20,8 @@ class SiteController extends Controller
         $loginMode = 'local';
 
         //redirect to sso action if ssoUser is not set in session yet
-        if ((!isset($_GET['ssouser']) || !isset($_GET['ssodomain']) || !isset($_GET['timestamp']) || !isset($_GET['auth']))
+        if ((!isset(YII::$app->params['login']['enableSSO']) ||  YII::$app->params['login']['enableSSO'] == true)
+            && (!isset($_GET['ssouser']) || !isset($_GET['ssodomain']) || !isset($_GET['timestamp']) || !isset($_GET['auth']))
             && !Yii::$app->session['ssoLoginAttempted'] && !isset(Yii::$app->session['logout'])
         ) {
             Yii::$app->session['ssoLoginAttempted'] = true;
