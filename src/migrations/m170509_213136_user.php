@@ -1,14 +1,17 @@
 <?php
 
+namespace samkoch\yii2user\migrations;
+
 use yii\db\Migration;
 
 class m170509_213136_user extends Migration
 {
+    public $table = '{{%user}}';
     protected $tableOptions = 'CHARACTER SET utf8 COLLATE utf8_unicode_ci ENGINE=InnoDB';
 
     public function up()
     {
-        $this->createTable('{{%user}}', [
+        $this->createTable($this->table, [
             'id' => $this->primaryKey(),
             'object_guid' => $this->string(255)->null(),
             'username' => $this->string(255)->null(),
@@ -30,13 +33,13 @@ class m170509_213136_user extends Migration
             'updated_at' => $this->integer()->notNull(),
         ], $this->tableOptions);
 
-        $this->createIndex('{{%user_unique_username}}', '{{%user}}', 'username', true);
-        $this->createIndex('{{%user_unique_email}}', '{{%user}}', 'email', true);
+        $this->createIndex('{{%user_unique_username}}', $this->table, 'username', true);
+        $this->createIndex('{{%user_unique_email}}', $this->table, 'email', true);
     }
 
     public function down()
     {
-        $this->dropTable('{{%user}}');
+        $this->dropTable($this->table);
     }
 
 }
