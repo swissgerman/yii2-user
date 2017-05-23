@@ -19,6 +19,7 @@ class m170509_213136_user extends Migration
             'first_name' => $this->string(255)->null(),
             'last_name' => $this->string(255)->null(),
             'email' => $this->string(255)->notNull(),
+            'job_title' => $this->string(255)->notNull(),
             'status' => $this->integer()->notNull(),
             'local_user' => $this->integer()->notNull(),
             'member_of_ad' => $this->string(255)->null(),
