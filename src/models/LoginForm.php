@@ -87,6 +87,9 @@ class LoginForm extends Model
         if ($this->_user === false) {
             $this->_user = User::findByUsername($this->username);
         }
+        if($this->_user == false && Yii::$app->params['login']['onTheFlyADImport'] == true){
+            $this->_user = User::createUserFromDirectory($this->username);
+        }
 
         return $this->_user;
     }
