@@ -23,13 +23,13 @@ class UserImportController extends Controller
      */
     public function actionIndex()
     {
-        if (is_array(Yii::$app->params['userGroups'])) {
-            foreach (Yii::$app->params['userGroups'] as $role => $adGroup) {
+        if (is_array(Yii::$app->params['login']['userGroups'])) {
+            foreach (Yii::$app->params['login']['userGroups'] as $adGroup => $role) {
                 $adUsers = $this->retrieveUsersFromDirectory($adGroup);
 
                 if($adUsers && is_array($adUsers)) {
                     foreach ($adUsers as $adUser) {
-                        $this->importUser($adUser, $adGroup, $role === 'admin' ? true : false);
+                        $this->importUser($adUser, $adGroup, $role);
                     }
                 }
             }
@@ -68,7 +68,7 @@ class UserImportController extends Controller
         return $ldap->getResolvedUsers($filter, $groupAttributes, $rangeAttributes, $userAttributes, $memberFilterGroups, $memberFilterUser);
     }
 
-    public function importUser($adUser, $adGroup, $admin = false)
+    public function importUser($adUser, $adGroup, $userGroupId = User::USERGROUP_USER)
     {
         $adUser['displayName'] = utf8_encode($adUser['displayName']);
 
@@ -88,12 +88,7 @@ class UserImportController extends Controller
         $user->first_name = $adUser['givenName'];
         $user->last_name = $adUser['sn'];
         $user->status = User::STATUS_ACTIVE;
-
-        $user->user_group_id = User::USERGROUP_USER;
-        if($admin === true) {
-            $user->user_group_id = User::USERGROUP_ADMIN;
-        }
-
+        $user->user_group_id = $userGroupId;
         if (count($user->getMemberOfAdAsArray())) {
             $user->setMemberOfAdFromArray(array_merge($user->getMemberOfAdAsArray(), [$adGroup]));
         } else {
