@@ -250,22 +250,26 @@ class User extends ActiveRecord implements IdentityInterface
     {
         $user = self::findByUsername($username);
 
-        //if email address was provided
-        if (!$user && filter_var($username, FILTER_VALIDATE_EMAIL)) {
-            $user = self::findByEmail($username);
-        }
-
         if (!$user) {
 
             //get LDAP component
             $ldap = yii::$app->ldap;
 
+            //has groups to validate
+            if(!empty(Yii::$app->params['login']['userGroups'])){
+                $groups = '(|';
+                foreach (Yii::$app->params['login']['userGroups'] as $group => $role){
+                    $groups .= "(memberOf=CN=$group,OU=Distribution,OU=Groups,OU=M-Workplace,DC=corp,DC=ADS,DC=Migros,DC=ch)";
+                }
+                $groups .= ")";
+            }
+
             //if email address was provided
             if (filter_var($username, FILTER_VALIDATE_EMAIL)) {
-                $ldapData = $ldap->getEntries('(&(objectClass=User)(mail=' . $username . '))',
+                $ldapData = $ldap->getEntries('(&(objectClass=User)(mail=' . $username . ')'.$groups.')',
                     ['displayname', 'mail', 'objectguid', 'samaccountname', 'givenname', 'sn', 'extensionattribute6']);
             } else {
-                $ldapData = $ldap->getEntries('(&(objectClass=User)(sAMAccountName=' . $username . '))',
+                $ldapData = $ldap->getEntries('(&(objectClass=User)(sAMAccountName=' . $username . ')'.$groups.')',
                     ['displayname', 'mail', 'objectguid', 'samaccountname', 'givenname', 'sn', 'extensionattribute6']);
             }
 
@@ -276,7 +280,6 @@ class User extends ActiveRecord implements IdentityInterface
                 $model->first_name = $ldap->getSingleValue($ldapData, 'givenname');
                 $model->last_name = $ldap->getSingleValue($ldapData, 'sn');
                 $model->email = $ldap->getSingleValue($ldapData, 'mail');
-                $model->job_title = $ldap->getSingleValue($ldapData, 'extensionattribute6');
                 $model->display_name = $ldap->getSingleValue($ldapData, 'displayname');
                 $model->status = self::STATUS_ACTIVE;
 
@@ -291,7 +294,7 @@ class User extends ActiveRecord implements IdentityInterface
         return false;
     }
 
-    protected function updateUserDataFromActiveDirectory()
+    protected function  updateUserDataFromActiveDirectory()
     {
         //get LDAP component
         $ldap = yii::$app->ldap;
