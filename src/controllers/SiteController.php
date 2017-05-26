@@ -1,90 +1,120 @@
 <?php
 
-namespace samkoch\yii2user\controllers;
+namespace samkoch\yii2user\commands;
 
 use Yii;
-use yii\web\Controller;
-use yii\helpers\Url;
-use samkoch\yii2user\models\LoginForm;
-use samkoch\activitylog\ActivityLog;
+use yii\console\Controller;
+use samkoch\yii2user\models\User;
 
-class SiteController extends Controller
+
+/**
+ * Imports AD users.
+ *
+ */
+class UserImportController extends Controller
 {
+    const LOG_TARGET = 'import';
+
+    public $importedObjectGuids = [];
+
     /**
-     * Login action.
+     * Retrieve users from Active Directory
      *
-     * @return string
      */
-    public function actionLogin()
+    public function actionIndex()
     {
-        $loginMode = 'local';
+        if (is_array(Yii::$app->params['login']['userGroups'])) {
+            foreach (Yii::$app->params['login']['userGroups'] as $adGroup => $role) {
+                $adUsers = $this->retrieveUsersFromDirectory($adGroup);
 
-        //redirect to sso action if ssoUser is not set in session yet
-        if ((!isset($_GET['ssouser']) || !isset($_GET['ssodomain']) || !isset($_GET['timestamp']) || !isset($_GET['auth']))
-            && !Yii::$app->session['ssoLoginAttempted'] && !isset(Yii::$app->session['logout'])
-        ) {
-            Yii::$app->session['ssoLoginAttempted'] = true;
-            $this->redirect('/sso/?returnUrl=' . urlencode(Url::current([], true)));
-
-            Yii::$app->end();
-        }
-
-        if (!Yii::$app->user->isGuest) {
-            return $this->goHome();
-        }
-
-        $model = new LoginForm();
-        $params = Yii::$app->request->post();
-
-        if (isset($_GET['ssouser']) && isset($_GET['ssodomain']) && isset($_GET['timestamp']) && isset($_GET['auth']) && !isset(Yii::$app->session['logout'])) {
-            $knownHash = hash('sha256', $_GET['ssouser'] . $_GET['ssodomain'] . $_GET['timestamp'] . yii::$app->params['ssoAuthSecretKey']);
-            if (hash_equals($knownHash, $_GET['auth'])) {
-                Yii::$app->session['authSsoLogin'] = true;
-
-                $params = [
-                    'LoginForm' => [
-                        'username' => $_GET['ssouser'],
-                        'password' => $_GET['ssouser'],
-                    ]
-                ];
-                $loginMode = 'sso';
-
-                if (!$model) {
-                    $model = new LoginForm();
+                if($adUsers && is_array($adUsers)) {
+                    foreach ($adUsers as $adUser) {
+                        $this->importUser($adUser, $adGroup, $role);
+                    }
                 }
             }
-        }
 
-        if ($model->load($params) && $model->login()) {
-            //remove password from log params array
-            $logParams = $params;
-            $logParams['LoginForm']['password'] = '***';
-
-            //log activity
-            ActivityLog::log('Login', 'User logged in', $model, null,
-                'Login mode: ' . $loginMode . PHP_EOL . 'Form contents: ' . PHP_EOL . print_r($logParams, true));
-            return $this->goBack();
-        } else {
-            return $this->render('login', [
-                'model' => $model,
-            ]);
+            $this->cleanUpUsers();
         }
     }
 
-    /**
-     * Logout action.
-     *
-     * @return string
-     */
-    public function actionLogout()
+    public function retrieveUsersFromDirectory($group)
     {
-        //log activity
-        ActivityLog::log('Logout', 'User logged out', Yii::$app->user);
+        $filter = '(&(objectClass=Group)(CN=' . $group . '))';
+        $groupAttributes = ['objectGUID', 'displayName', 'distinguishedName', 'managedBy'];
+        $userAttributes = ['objectGUID', 'displayName', 'distinguishedName', 'mail', 'sAMAccountName', 'sn', 'givenName'];
+        $rangeAttributes = ['member'];
+        $memberFilterGroups = [
+            [
+                'type' => 'AND',
+                'value' => 'OU=Groups',
+            ],
+            [
+                'type' => 'OR',
+                'value' => [
+                    'CN=ARG_',
+                    'CN=ORG_',
+                    'CN=PRO_',
+                ],
+            ],
+        ];
+        $memberFilterUser = [['value' => 'OU=Users']];
 
-        Yii::$app->user->logout(false);
-        Yii::$app->session['logout'] = true;
+        Yii::info('Retrieving users from directory.', self::LOG_TARGET);
 
-        return $this->goHome();
+        //get LDAP component
+        $ldap = yii::$app->ldap;
+
+        return $ldap->getResolvedUsers($filter, $groupAttributes, $rangeAttributes, $userAttributes, $memberFilterGroups, $memberFilterUser);
+    }
+
+    public function importUser($adUser, $adGroup, $userGroupId = User::USERGROUP_USER)
+    {
+        $adUser['displayName'] = utf8_encode($adUser['displayName']);
+
+        $user = User::find()->where(['object_guid' => $adUser['objectGUID']])->one();
+        if (!$user) {
+            $user = new User;
+            $user->object_guid = $adUser['objectGUID'];
+
+            Yii::info('Added new user ' . $adUser['displayName'] . '.', self::LOG_TARGET);
+            $user->created_at = time();
+        } else {
+            Yii::info('Updated user ' . $adUser['displayName'] . '.', self::LOG_TARGET);
+            $user->updated_at = time();
+        }
+        $user->email = $adUser['mail'];
+        $user->display_name = $adUser['displayName'];
+        $user->username = $adUser['sAMAccountName'];
+        $user->first_name = $adUser['givenName'];
+        $user->last_name = $adUser['sn'];
+        $user->status = User::STATUS_ACTIVE;
+        $user->user_group_id = $userGroupId;
+        if (count($user->getMemberOfAdAsArray())) {
+            $user->setMemberOfAdFromArray(array_merge($user->getMemberOfAdAsArray(), [$adGroup]));
+        } else {
+            $user->setMemberOfAdFromArray([$adGroup]);
+        }
+
+        $this->importedObjectGuids[] = $adUser['objectGUID'];
+
+        return $user->save();
+    }
+
+    public function cleanUpUsers()
+    {
+        //delete not imported users, except admin and local users
+        $usersToBeDeleted = User::find()
+            ->where(['!=', 'local_user', 1])
+            ->andWhere(['NOT IN', 'object_guid', $this->importedObjectGuids])
+            ->andWhere(['!=', 'status', User::STATUS_DELETED])
+            ->all();
+
+        foreach ($usersToBeDeleted as $userToBeDeleted) {
+            $userToBeDeleted->status = User::STATUS_DELETED;
+            $userToBeDeleted->save(false);
+        }
+        Yii::info('Deleted ' . count($usersToBeDeleted) . ' obsolete users.', self::LOG_TARGET);
     }
 
 }
