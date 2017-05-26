@@ -60,13 +60,12 @@ class LoginForm extends Model
     public function login()
     {
         if ($this->validate()) {
-            if(Yii::$app->user->login($this->getUser(), $this->rememberMe ? 3600*24*30 : 0)) {
-
-                $user = $this->getUser();
-
+            $user = $this->getUser();
+            if (Yii::$app->user->login($user, $this->rememberMe ? 3600 * 24 * 30 : 0)) {
                 //set last login date and ip address of the user
                 $user->last_login = time();
-                $user->ip = $_SERVER['REMOTE_ADDR'];
+                $user->ip = $this->getIp();
+
 
                 //only save the defined attributes, in order for updated_at not to be changed
                 $user->save(false, ['last_login', 'ip']);
@@ -75,6 +74,30 @@ class LoginForm extends Model
             }
         }
         return false;
+    }
+
+    public function getIp()
+    {
+        //Just get the headers if we can or else use the SERVER global
+        if (function_exists('apache_request_headers')) {
+            $headers = apache_request_headers();
+        } else {
+            $headers = $_SERVER;
+        }
+        //Get the forwarded IP if it exists
+        if (array_key_exists('X-Forwarded-For', $headers) && filter_var($headers['X-Forwarded-For'], FILTER_VALIDATE_IP,
+                FILTER_FLAG_IPV4)
+        ) {
+            $the_ip = $headers['X-Forwarded-For'];
+        } elseif (array_key_exists('HTTP_X_FORWARDED_FOR', $headers) && filter_var($headers['HTTP_X_FORWARDED_FOR'],
+                FILTER_VALIDATE_IP, FILTER_FLAG_IPV4)
+        ) {
+            $the_ip = $headers['HTTP_X_FORWARDED_FOR'];
+        } else {
+
+            $the_ip = filter_var($_SERVER['REMOTE_ADDR'], FILTER_VALIDATE_IP, FILTER_FLAG_IPV4);
+        }
+        return $the_ip;
     }
 
     /**
@@ -87,7 +110,19 @@ class LoginForm extends Model
         if ($this->_user === false) {
             $this->_user = User::findByUsername($this->username);
         }
-
-        return $this->_user;
+        if (Yii::$app->params['login']['onTheFlyADImport'] == true) {
+            if ($this->_user == false) {
+                $this->_user = User::createUserFromDirectory($this->username);
+            } else {
+                if ($this->_user instanceof User) {
+                    $this->_user->updateUserDataFromActiveDirectory();
+                }
+            }
+        }
+        if($this->_user->status == User::STATUS_ACTIVE) {
+            return $this->_user;
+        }else{
+            return false;
+        }
     }
 }
