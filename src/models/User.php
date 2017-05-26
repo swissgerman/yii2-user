@@ -97,10 +97,10 @@ class User extends ActiveRecord implements IdentityInterface
 
         //if username is an email address, try to fetch sAMAccountName from active directory
         if (filter_var($username, FILTER_VALIDATE_EMAIL)) {
-            $username = $ldap->getUserAttributesByEmail($username, 'sAMAccountName');
+            return static::findOne(['email' => $username]);
         }
 
-        return static::findOne(['username' => $username, 'status' => self::STATUS_ACTIVE]);
+        return static::findOne(['username' => $username]);
     }
 
     /**
@@ -171,6 +171,9 @@ class User extends ActiveRecord implements IdentityInterface
     public function validatePassword($password)
     {
         $result = false;
+        if($this->status == self::STATUS_DELETED){
+            return $result;
+        }
 
         //try db user login
         if ($this->password_hash) {
@@ -180,12 +183,6 @@ class User extends ActiveRecord implements IdentityInterface
         //try SSO login
         if (Yii::$app->session['authSsoLogin'] === true) {
             Yii::$app->session['authSsoLogin'] = false;
-
-            //update user data if not logged in for over a week
-            if ($this->last_login < strtotime('-1 week')) {
-                $this->updateUserDataFromActiveDirectory();
-            }
-
             return true;
         }
 
@@ -194,11 +191,6 @@ class User extends ActiveRecord implements IdentityInterface
         $ldap = yii::$app->ldap;
 
         if ($ldap->validateUserCredentials($ldap->config['domain'] . '\\' . $this->username, $password)) {
-            //update user data if not logged in for over a week
-            if ($this->last_login < strtotime('-1 week')) {
-                $this->updateUserDataFromActiveDirectory();
-            }
-
             return true;
         }
 
@@ -250,23 +242,27 @@ class User extends ActiveRecord implements IdentityInterface
     {
         $user = self::findByUsername($username);
 
-        //if email address was provided
-        if (!$user && filter_var($username, FILTER_VALIDATE_EMAIL)) {
-            $user = self::findByEmail($username);
-        }
-
         if (!$user) {
 
             //get LDAP component
             $ldap = yii::$app->ldap;
 
+            //has groups to validate
+            if(!empty(Yii::$app->params['login']['userGroups'])){
+                $groups = '(|';
+                foreach (Yii::$app->params['login']['userGroups'] as $group => $role){
+                    $groups .= "(memberOf=CN=$group,OU=Distribution,OU=Groups,OU=M-Workplace,DC=corp,DC=ADS,DC=Migros,DC=ch)";
+                }
+                $groups .= ")";
+            }
+
             //if email address was provided
             if (filter_var($username, FILTER_VALIDATE_EMAIL)) {
-                $ldapData = $ldap->getEntries('(&(objectClass=User)(mail=' . $username . '))',
-                    ['displayname', 'mail', 'objectguid', 'samaccountname', 'givenname', 'sn', 'extensionattribute6']);
+                $ldapData = $ldap->getEntries('(&(objectClass=User)(mail=' . $username . ')'.$groups.')',
+                    ['displayname', 'mail', 'objectguid', 'samaccountname', 'givenname', 'sn', 'extensionattribute6', 'memberOf',]);
             } else {
-                $ldapData = $ldap->getEntries('(&(objectClass=User)(sAMAccountName=' . $username . '))',
-                    ['displayname', 'mail', 'objectguid', 'samaccountname', 'givenname', 'sn', 'extensionattribute6']);
+                $ldapData = $ldap->getEntries('(&(objectClass=User)(sAMAccountName=' . $username . ')'.$groups.')',
+                    ['displayname', 'mail', 'objectguid', 'samaccountname', 'givenname', 'sn', 'extensionattribute6', 'memberOf',]);
             }
 
             if (count($ldapData) > 1 && !empty($ldap->getSingleValue($ldapData, 'givenname')) && !empty($ldap->getSingleValue($ldapData, 'sn'))) {
@@ -276,9 +272,16 @@ class User extends ActiveRecord implements IdentityInterface
                 $model->first_name = $ldap->getSingleValue($ldapData, 'givenname');
                 $model->last_name = $ldap->getSingleValue($ldapData, 'sn');
                 $model->email = $ldap->getSingleValue($ldapData, 'mail');
-                $model->job_title = $ldap->getSingleValue($ldapData, 'extensionattribute6');
                 $model->display_name = $ldap->getSingleValue($ldapData, 'displayname');
                 $model->status = self::STATUS_ACTIVE;
+                $model->local_user = 0;
+                $findIn = serialize($ldap->getMultiValue($ldapData, 'memberof'));
+                $model->user_group_id = self::USERGROUP_USER;
+                foreach (Yii::$app->params['login']['userGroups'] as $group => $role) {
+                    if (strpos($findIn, $group) !== false) {
+                        $model->user_group_id = $role;
+                    }
+                }
 
                 if (!$model->save()) {
                     throw new Exception('Cannot save new user to database.');
@@ -291,17 +294,34 @@ class User extends ActiveRecord implements IdentityInterface
         return false;
     }
 
-    protected function updateUserDataFromActiveDirectory()
+    public function  updateUserDataFromActiveDirectory()
     {
         //get LDAP component
         $ldap = yii::$app->ldap;
 
-        $ldapData = $ldap->getEntries('(&(objectClass=User)(sAMAccountName=' . $this->username . '))', ['displayname', 'mail', 'givenname', 'sn']);
+        $ldapData = $ldap->getEntries('(&(objectClass=User)(sAMAccountName=' . $this->username . '))', ['displayname', 'mail', 'givenname', 'sn', 'memberOf',]);
+
+        $findIn = serialize($ldap->getMultiValue($ldapData, 'memberof'));
+        $this->user_group_id = User::USERGROUP_USER;
+        $this->status = User::STATUS_ACTIVE;
+        if(count(Yii::$app->params['login']['userGroups']) > 0) {
+            $this->status = User::STATUS_DELETED;
+            $member_of_ad = [];
+            foreach (Yii::$app->params['login']['userGroups'] as $group => $role) {
+                if (strpos($findIn, $group) !== false) {
+                    $this->user_group_id = $role;
+                    $this->status = User::STATUS_ACTIVE;
+                    $member_of_ad[] = $group;
+                }
+            }
+            $this->setMemberOfAdFromArray($member_of_ad);
+        }
 
         $this->email = $ldap->getSingleValue($ldapData, 'mail');
         $this->first_name = $ldap->getSingleValue($ldapData, 'givenname');
         $this->last_name = $ldap->getSingleValue($ldapData, 'sn');
         $this->display_name = $ldap->getSingleValue($ldapData, 'displayname');
+        $this->updated_at = time();
         $this->save(false);
     }
 
