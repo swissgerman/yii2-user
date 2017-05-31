@@ -11,9 +11,9 @@ It is recommended to use [composer](https://getcomposer.org) to install the libr
 $ composer require samkoch/yii2-user
 $ ./yii migrate/up --migrationPath=@vendor/samkoch/yii2-user/src/migrations
 ```
-Add following to params:
+Add the following to conig/params.php:
 
-```bash
+```php
     'login' => [
         //default true
         //'enableSSO' => true,
@@ -21,10 +21,8 @@ Add following to params:
         //default false
         'onTheFlyADImport' => true,
 
-        //Is bound to onTheFlyADImport;
-        // default empty, means all Groups are allowed
+        //bound to onTheFlyADImport;
+        // default empty, meaning all groups are allowed
         'userGroups' => ['someAdminGroupName' => \samkoch\yii2user\models\User::USERGROUP_ADMIN],
-
-
     ],
 ```
